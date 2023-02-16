@@ -101,10 +101,6 @@ def resource_existence_check(arn) -> bool:
     resource_type = arn.split(':')[2]
     if resource_type == 's3':
         return check_s3_bucket_exists(arn)
-    elif resource_type == 'dynamodb':
-        return boto3.resource('dynamodb').Table(arn.split(':')[-1]).table_status
-    elif resource_type == 'lambda':
-        return boto3.client('lambda').get_function(FunctionName=arn.split(':')[-1])
     elif resource_type == 'ec2':
         ec2_type = get_ec2_resource_type(arn)
         print(ec2_type)
