@@ -21,6 +21,7 @@ import re
 import subprocess
 import json
 import sys
+import os
 
 # Configuración de AWS
 aws_region = "eu-west-1"
@@ -54,7 +55,7 @@ def get_tfstate() -> list:
     
     return resources
 
-def obtener_arn(arr):
+def obtener_arn(arr) -> list:
     arns = []
     for dic in arr:
         if 'values' in dic:
@@ -93,14 +94,13 @@ def get_ec2_resource_type(arn):
 
     return resource_type
 
-
-def get_resource_existence_check_function(arn):
+def resource_existence_check(arn) -> bool:
     """
     Returns the function to check if a resource exists based on its ARN
     """
     resource_type = arn.split(':')[2]
     if resource_type == 's3':
-        print(check_s3_bucket_exists(arn))
+        return check_s3_bucket_exists(arn)
     elif resource_type == 'dynamodb':
         return boto3.resource('dynamodb').Table(arn.split(':')[-1]).table_status
     elif resource_type == 'lambda':
@@ -109,40 +109,83 @@ def get_resource_existence_check_function(arn):
         ec2_type = get_ec2_resource_type(arn)
         print(ec2_type)
         if ec2_type == "security-group":
-            print(check_security_group_exists(arn))
+            return check_security_group_exists(arn)
     else:
         raise ValueError(f"Unsupported resource type: {resource_type}")
 
+def get_terraform_resource_id_from_arn(arn, tfstate_resources) -> str:
+    for entry in tfstate_resources:
+        if 'arn' in entry['values'] and entry['values']['arn'] == arn:
+            return entry['address']
+    return None
 
-def get_missing_resource() -> str: 
-    pass
+def get_tf_import_params(tfstate_resources) -> str:
+    tf_id = tfstate_resources['values']['id']
+    return tf_id
 
-def delete(url):
-    pass
+def delete_resource_from_tfstate(tf_resource_id):
+    delete_command = 'terraform -chdir=' + REPO_DIRECTORY + ' state rm "' + tf_resource_id + '"'
+    print(f"runing: {delete_command}")
+    os.system(delete_command)
 
-def update(url):
-    pass
+def update_resource_if_distinct(tf_resource_addr, tf_resource_id):
+    update_command = 'terraform -chdir=' + REPO_DIRECTORY + ' import "'+ tf_resource_addr + '" ' + tf_resource_id 
+    print(f"runing: {update_command}")
+    os.system(update_command)
 
-if __name__ == "__main__":
-    arn_array = obtener_arn(get_tfstate())
-    get_resource_existence_check_function(arn_array[3])
-    exit()
-    if len(sys.argv) == 2:
+def delete_function():
+    tfstate_resources = get_tfstate()
+    resource_arns = obtener_arn(tfstate_resources)
+    for arn in resource_arns:
+        resource_addr = get_terraform_resource_id_from_arn(arn, tfstate_resources)
+        resource_type = arn.split(':')[2]
+        if resource_type == "dynamodb": # Not implemented
+            continue
+        if resource_type == "iam": # Not implemented
+            continue
+        exists = resource_existence_check(arn)
+        if not exists:
+            delete_resource_from_tfstate(resource_addr) 
+
+def update_function():
+    tfstate_resources = get_tfstate()
+    resource_arns = obtener_arn(tfstate_resources)
+    for arn in resource_arns:
+        resource_addr = get_terraform_resource_id_from_arn(arn, tfstate_resources)
+        resource_id = get_tf_import_params(tfstate_resources)
+        exists = resource_existence_check(arn)
+        if exists:
+            update_resource_if_distinct(resource_addr, resource_id)
+
+def default_function():
+    tfstate_resources = get_tfstate()
+    resource_arns = obtener_arn(tfstate_resources)
+    for arn in resource_arns:
+        resource_addr = get_terraform_resource_id_from_arn(arn, tfstate_resources)
+        resource_id = get_tf_import_params(tfstate_resources)
+        exists = resource_existence_check(arn)
+        if not exists:
+            delete_resource_from_tfstate(resource_addr) 
+        else:
+            update_resource_if_distinct(resource_addr, resource_id)
+
+def main(args):
+    if len(args) == 2:
         # Si solo se pasó un argumento, verificamos si es una URL
-        url = sys.argv[1]
+        url = args[1]
         if not re.match(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', url):
             print("Error: Si solo se pasa un argumento, debe ser una URL válida.")
             print("Uso: python main.py [<delete|update>] <url>")
         else:
-            update(url)
-    elif len(sys.argv) == 3:
+            default_function()
+    elif len(args) == 3:
         # Si se pasan dos argumentos, verificamos si el primer argumento es 'delete' o 'update'
-        parametro = sys.argv[1]
-        url = sys.argv[2]
+        parametro = args[1]
+        url = args[2]
         if parametro == "delete":
-            delete()
+            delete_function()
         elif parametro == "update":
-            update(url)
+            update_function()
         else:
             print("Parámetro no válido. Debe ser 'delete' o 'update'.")
             print("Uso: python main.py [<delete|update>] <url>")
@@ -150,3 +193,6 @@ if __name__ == "__main__":
         # Si no se pasan los argumentos correctos, imprimimos las instrucciones de uso
         print("Error: El script debe recibir uno o dos parámetros.")
         print("Uso: python main.py [<delete|update>] <url>")
+
+if __name__ == "__main__":
+    main(sys.argv)
