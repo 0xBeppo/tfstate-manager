@@ -81,7 +81,7 @@ def check_s3_bucket_exists(bucket_arn):
         return False
 
 def check_security_group_exists(arn):
-    ec2 = boto3.client('ec2')
+    ec2 = boto3.client('ec2', region_name=aws_region)
     group_id = arn.split('/')[-1]
     try:
         response = ec2.describe_security_groups(GroupIds=[group_id])
