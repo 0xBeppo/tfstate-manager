@@ -154,7 +154,7 @@ def delete_function(url):
             delete_resource_from_tfstate(resource_addr) 
 
 def update_function(url):
-    #clone_git_project(url)
+    clone_git_project(url)
     init_tf_project()
     tfstate_resources = get_tfstate()
     resource_arns = obtener_arn(tfstate_resources)
